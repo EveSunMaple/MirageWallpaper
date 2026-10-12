@@ -361,7 +361,7 @@ final class MirageScreenSaverView: ScreenSaverView {
     private var configurationRequestID = UUID()
 
     private var currentDisplayKey: String? {
-        guard !isPreview, let screen = window?.screen,
+        guard !isPreview, let screen = owningScreen(),
               let displayID = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
         else { return nil }
         return wallpaperDisplayKey(displayID)
@@ -458,10 +458,14 @@ final class MirageScreenSaverView: ScreenSaverView {
         layoutSubtreeIfNeeded()
         normalizeFullScreenBoundsIfNeeded()
         layoutSubtreeIfNeeded()
+        // The host can attach this view before its window lands on the target
+        // display, and the renderer drawable size is fixed at creation. Wait for
+        // a resolvable owning screen instead of assuming the main display.
         guard hasValidBounds,
-              MirageSaverRenderSize(size: convertToBacking(bounds).size, isPreview: isPreview) != nil else {
+              MirageSaverRenderSize(size: convertToBacking(bounds).size, isPreview: isPreview) != nil,
+              isPreview || owningScreen() != nil else {
             if !isWaitingForLayout {
-                screenSaverLogger.info("Waiting for valid screen saver layout: \(self.bounds.width, privacy: .public)x\(self.bounds.height, privacy: .public)")
+                screenSaverLogger.info("Waiting for valid screen saver layout: \(self.bounds.width, privacy: .public)x\(self.bounds.height, privacy: .public) screen=\(self.screenLogDescription(), privacy: .public)")
                 isWaitingForLayout = true
             }
             return
@@ -474,6 +478,9 @@ final class MirageScreenSaverView: ScreenSaverView {
         }
         self.configuration = configuration
         animationTimeInterval = 1.0 / Double(configuration.fps)
+        screenSaverLogger.notice(
+            "MirageScreenSaver load kind=\(configuration.kind, privacy: .public) preview=\(self.isPreview, privacy: .public) points=\(Int(self.bounds.width), privacy: .public)x\(Int(self.bounds.height), privacy: .public) screen=\(self.screenLogDescription(), privacy: .public)"
+        )
         switch configuration.kind {
         case "video": loadVideo(configuration)
         case "scene": loadScene(configuration)
@@ -483,7 +490,7 @@ final class MirageScreenSaverView: ScreenSaverView {
 
     private func position(for configuration: MirageSaverConfiguration) -> WallpaperPosition {
         guard !isPreview,
-              let screen = window?.screen,
+              let screen = owningScreen(),
               let displayID = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value,
               let key = wallpaperDisplayKey(displayID) else { return configuration.position }
         return configuration.positionsByDisplay[key] ?? configuration.position
@@ -520,12 +527,71 @@ final class MirageScreenSaverView: ScreenSaverView {
         sceneSession?.setPaused(!isAnimatingWallpaper)
     }
 
+    // The legacy screen saver host can attach this view before `window.screen`
+    // becomes valid. `NSScreen.main` would then point at the menu-bar display and
+    // resize savers on secondary displays to the primary display's geometry.
+    // Resolve the owning display by the host-reported bounds first, then by
+    // window geometry, and never guess.
+    private func owningScreen() -> NSScreen? {
+        if let screen = window?.screen { return screen }
+        if let screen = matchingScreen(for: bounds.size) { return screen }
+        guard let window else { return nil }
+        return Self.screen(containing: window.frame)
+    }
+
+    private func matchingScreen(for size: CGSize) -> NSScreen? {
+        guard size.width.isFinite, size.height.isFinite,
+              size.width > 0, size.height > 0 else { return nil }
+        let transposed = CGSize(width: size.height, height: size.width)
+        let matches = NSScreen.screens.filter { screen in
+            guard screen.backingScaleFactor.isFinite, screen.backingScaleFactor > 0 else { return false }
+            let backing = screen.convertRectToBacking(screen.frame).size
+            let logical = CGSize(
+                width: backing.width / screen.backingScaleFactor,
+                height: backing.height / screen.backingScaleFactor
+            )
+            return approximatelyEqual(size, logical) || approximatelyEqual(size, backing)
+                || approximatelyEqual(transposed, logical) || approximatelyEqual(transposed, backing)
+        }
+        guard !matches.isEmpty else { return nil }
+        if matches.count == 1 { return matches[0] }
+        if let window {
+            let center = CGPoint(x: window.frame.midX, y: window.frame.midY)
+            if let containing = matches.first(where: { $0.frame.contains(center) }) {
+                return containing
+            }
+        }
+        return matches[0]
+    }
+
+    static func screen(containing frame: NSRect) -> NSScreen? {
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        if let screen = NSScreen.screens.first(where: { $0.frame.contains(center) }) {
+            return screen
+        }
+        var best: (screen: NSScreen, area: CGFloat)?
+        for screen in NSScreen.screens {
+            let intersection = screen.frame.intersection(frame)
+            let area = intersection.isNull ? 0 : intersection.width * intersection.height
+            if area > (best?.area ?? 0) {
+                best = (screen, area)
+            }
+        }
+        return best?.screen
+    }
+
+    private func screenLogDescription() -> String {
+        guard let screen = owningScreen() else { return "unresolved" }
+        let backing = screen.convertRectToBacking(screen.frame).size
+        return "\(screen.localizedName) frame=\(Int(screen.frame.width))x\(Int(screen.frame.height))pts scale=\(String(format: "%.2f", screen.backingScaleFactor)) backing=\(Int(backing.width))x\(Int(backing.height))"
+    }
+
     private func normalizeFullScreenBoundsIfNeeded() {
         if hostReportedSize == .zero {
             hostReportedSize = bounds.size
         }
         guard !isPreview else { return }
-        guard let screen = window?.screen ?? NSScreen.main else { return }
+        guard let screen = owningScreen() else { return }
         guard screen.backingScaleFactor.isFinite, screen.backingScaleFactor > 0 else { return }
         let backingSize = screen.convertRectToBacking(screen.frame).size
         let logicalSize = CGSize(
@@ -553,7 +619,7 @@ final class MirageScreenSaverView: ScreenSaverView {
     }
 
     private func displayPixelSize() -> CGSize? {
-        guard let screen = window?.screen ?? NSScreen.main else { return nil }
+        guard let screen = owningScreen() else { return nil }
         let size = screen.convertRectToBacking(screen.frame).size
         guard size.width.isFinite, size.height.isFinite,
               size.width > 0, size.height > 0 else { return nil }
@@ -669,7 +735,7 @@ final class MirageScreenSaverView: ScreenSaverView {
         }
         scheduleWallpaperLoad()
         guard let rootLayer = layer else { return }
-        rootLayer.contentsScale = window?.backingScaleFactor ?? rootLayer.contentsScale
+        rootLayer.contentsScale = owningScreen()?.backingScaleFactor ?? rootLayer.contentsScale
         videoLayout?.update(bounds: videoPresentationBounds)
         playerLayer?.contentsScale = rootLayer.contentsScale
         if let playerLayer, let configuration {
@@ -771,7 +837,7 @@ final class MirageScreenSaverView: ScreenSaverView {
     }
 
     private func applyVideoDynamicRange(to playerLayer: AVPlayerLayer, enabled: Bool) {
-        let screen = window?.screen ?? NSScreen.main
+        let screen = owningScreen()
         let useHDR = enabled && (screen?.maximumPotentialExtendedDynamicRangeColorComponentValue ?? 1) > 1
         if #available(macOS 26.0, *) {
             let range: CALayer.DynamicRange = useHDR ? .constrainedHigh : .standard

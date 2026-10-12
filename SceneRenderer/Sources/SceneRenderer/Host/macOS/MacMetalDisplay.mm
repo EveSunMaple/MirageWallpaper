@@ -154,6 +154,58 @@ bool IsValidSize(CGSize size) {
            size.width > 0.0 && size.height > 0.0;
 }
 
+bool IsApproximatelyEqual(CGSize lhs, CGSize rhs) {
+    const CGFloat tolerance = 1.0;
+    return std::fabs(lhs.width - rhs.width) <= tolerance &&
+           std::fabs(lhs.height - rhs.height) <= tolerance;
+}
+
+// The host can present this view before `view.window.screen` is valid.
+// `NSScreen.mainScreen` would then resolve to the menu-bar display and normalize
+// bounds toward the wrong drawable size on secondary displays. Match the owning
+// display by the view's own bounds first (the host may report physical pixels as
+// points), then by window geometry, and report no screen when nothing matches.
+NSScreen* OwningScreenForView(NSView* view) {
+    NSWindow* window = view.window;
+    if (window == nil) return nil;
+    if (window.screen != nil) return window.screen;
+
+    const CGSize view_size = view.bounds.size;
+    if (IsValidSize(view_size)) {
+        const CGSize transposed = CGSizeMake(view_size.height, view_size.width);
+        for (NSScreen* candidate in [NSScreen screens]) {
+            const CGFloat scale = candidate.backingScaleFactor;
+            if (!std::isfinite(scale) || scale <= 0.0) continue;
+            const CGSize backing = [candidate convertRectToBacking:candidate.frame].size;
+            const CGSize logical = CGSizeMake(backing.width / scale, backing.height / scale);
+            if (IsApproximatelyEqual(view_size, logical) ||
+                IsApproximatelyEqual(view_size, backing) ||
+                IsApproximatelyEqual(transposed, logical) ||
+                IsApproximatelyEqual(transposed, backing)) {
+                return candidate;
+            }
+        }
+    }
+
+    const NSRect frame = window.frame;
+    const NSPoint center = NSMakePoint(NSMidX(frame), NSMidY(frame));
+    for (NSScreen* candidate in [NSScreen screens]) {
+        if (NSPointInRect(center, candidate.frame)) return candidate;
+    }
+    NSScreen* best = nil;
+    CGFloat best_area = 0.0;
+    for (NSScreen* candidate in [NSScreen screens]) {
+        const NSRect intersection = NSIntersectionRect(frame, candidate.frame);
+        if (NSIsEmptyRect(intersection)) continue;
+        const CGFloat area = intersection.size.width * intersection.size.height;
+        if (area > best_area) {
+            best_area = area;
+            best = candidate;
+        }
+    }
+    return best;
+}
+
 bool UpdateDrawableSize(MacMetalDisplay* display) {
     if (display == nullptr || display->layer == nil) return false;
     NSView* view = display->view;
@@ -180,7 +232,7 @@ bool UpdateDrawableSize(MacMetalDisplay* display) {
         // host may repeat this mutation after layout; normalize on every present,
         // not only when the saver is created. Preview instances intentionally use
         // the dynamic path below and are never constrained to a display size.
-        NSScreen* screen = view.window.screen ?: NSScreen.mainScreen;
+        NSScreen* screen = OwningScreenForView(view);
         const CGFloat backing_scale = screen.backingScaleFactor;
         if (std::isfinite(backing_scale) && backing_scale > 0.0) {
             const CGSize expected_bounds = CGSizeMake(
