@@ -361,9 +361,9 @@ static BOOL MirageWindowServerState(NSWindow *window, CGRect *bounds,
     NSView *content = self.window.contentView;
     if (content == nil) return NO;
     [content layoutSubtreeIfNeeded];
-    // One extra point hides the hairline where the menu-bar material samples
-    // the wallpaper below the notch.
-    const CGFloat safeTop = self.notchOptimization ? screen.safeAreaInsets.top + 1.0 : 0.0;
+    // A half-point (one pixel on Retina) hides the hairline where the menu-bar
+    // material samples the wallpaper below the notch.
+    const CGFloat safeTop = self.notchOptimization ? screen.safeAreaInsets.top + 0.5 : 0.0;
     NSRect webFrame = NSMakeRect(0, 0, NSWidth(content.bounds),
                                  MAX(1.0, NSHeight(content.bounds) - safeTop));
     if (!MirageNSRectMatches(self.engine.webView.frame, webFrame)) {
@@ -611,7 +611,7 @@ int main(int argc, char *argv[]) {
         }
         cfg.assetOverlayDirectories = assetOverlays;
 
-        const CGFloat safeTop = args.notchOptimization ? screen.safeAreaInsets.top + 1.0 : 0.0;
+        const CGFloat safeTop = args.notchOptimization ? screen.safeAreaInsets.top + 0.5 : 0.0;
         NSRect contentFrame = NSMakeRect(0, 0, NSWidth(screenFrame),
                                          MAX(1.0, NSHeight(screenFrame) - safeTop));
         WebRendererEngine *engine = [[WebRendererEngine alloc] initWithFrame:contentFrame config:cfg];

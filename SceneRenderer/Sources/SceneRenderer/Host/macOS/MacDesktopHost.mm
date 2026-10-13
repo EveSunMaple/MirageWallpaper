@@ -428,9 +428,10 @@ bool WindowServerState(NSWindow* window, CGRect& bounds, bool& onscreen, double&
 // Wallpaper viewport inside the full-screen window. Notch optimization
 // reserves the display's top safe-area strip: the viewport (and therefore the
 // Vulkan drawable) starts below it and the strip keeps the window's black
-// background instead of being covered by the scene. One extra point hides the
-// hairline where the menu-bar material samples the wallpaper below the notch.
-constexpr CGFloat kNotchStripExtraPoints = 1.0;
+// background instead of being covered by the scene. A half-point (one pixel
+// on Retina) hides the hairline where the menu-bar material samples the
+// wallpaper below the notch.
+constexpr CGFloat kNotchStripExtraPoints = 0.5;
 
 NSRect DesktopRenderFrame(NSScreen* screen, bool notch_optimization) {
     const CGFloat safe_top = notch_optimization

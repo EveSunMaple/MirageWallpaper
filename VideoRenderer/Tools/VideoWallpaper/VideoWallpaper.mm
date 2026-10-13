@@ -352,9 +352,9 @@ static BOOL MirageWindowServerState(NSWindow *window, CGRect *bounds,
     }
     NSView *content = self.window.contentView;
     if (content == nil) return NO;
-    // One extra point hides the hairline where the menu-bar material samples
-    // the wallpaper below the notch.
-    const CGFloat safeTop = self.notchOptimization ? screen.safeAreaInsets.top + 1.0 : 0.0;
+    // A half-point (one pixel on Retina) hides the hairline where the menu-bar
+    // material samples the wallpaper below the notch.
+    const CGFloat safeTop = self.notchOptimization ? screen.safeAreaInsets.top + 0.5 : 0.0;
     NSRect contentFrame = NSMakeRect(0, 0, NSWidth(screen.frame),
                                      MAX(1.0, NSHeight(screen.frame) - safeTop));
     if (!MirageNSRectMatches(content.frame, contentFrame)) {
@@ -555,7 +555,7 @@ int main(int argc, char *argv[]) {
         config.hdrEnabled = args.hdrEnabled;
 
         NSRect screenFrame = screen.frame;
-        const CGFloat safeTop = args.notchOptimization ? screen.safeAreaInsets.top + 1.0 : 0.0;
+        const CGFloat safeTop = args.notchOptimization ? screen.safeAreaInsets.top + 0.5 : 0.0;
         NSRect contentFrame = NSMakeRect(0, 0, NSWidth(screenFrame),
                                          MAX(1.0, NSHeight(screenFrame) - safeTop));
         VRVideoRendererEngine *engine = [[VRVideoRendererEngine alloc] initWithFrame:contentFrame

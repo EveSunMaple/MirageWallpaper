@@ -335,8 +335,8 @@ final class DesktopOverrideService {
         guard safeTop > 0.5,
               let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return }
-        // Matches the renderers' one-point hairline margin below the notch.
-        let topInset = safeTop + 1.0
+        // Matches the renderers' hairline margin below the notch.
+        let topInset = safeTop + 0.5
         let scale = CGFloat(image.width) / max(1, screen.frame.width)
         let insetPixels = Int((topInset * scale).rounded())
         let fullHeight = Int((screen.frame.height * scale).rounded())

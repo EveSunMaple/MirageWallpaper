@@ -222,7 +222,7 @@ struct GeneralPage: SettingsPage {
                     get: { viewModel.settings.shouldOptimizeNotch },
                     set: { viewModel.settings.notchOptimization = $0 }
                 ))
-                Text("在带刘海的屏幕上，顶部安全区保持纯黑，壁纸只铺在下方区域（相当于缩短屏幕比例），而不是用黑色色块遮挡壁纸。对不带刘海的显示器没有影响。")
+                Text("在带刘海的屏幕上，顶部菜单栏保持纯黑，壁纸只铺在下方区域，此功能对不带刘海的显示器没有影响。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
